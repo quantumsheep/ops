@@ -37,7 +37,7 @@ type Package struct {
 }
 
 // DownloadPackage downloads package by name
-func DownloadPackage(name string) (string, error) {
+func DownloadPackage(name string, config *types.Config) (string, error) {
 	packages, err := GetPackageList()
 	if err != nil {
 		return "", nil
@@ -49,12 +49,72 @@ func DownloadPackage(name string) (string, error) {
 
 	archivename := name + ".tar.gz"
 	packagepath := path.Join(PackagesCache, archivename)
-	if _, err := os.Stat(packagepath); os.IsNotExist(err) {
-		if err = DownloadFileWithProgress(packagepath,
-			fmt.Sprintf(PackageBaseURL, archivename), 600); err != nil {
-			return "", err
+	_, err = os.Stat(packagepath)
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+
+	if err == nil {
+		return packagepath, nil
+	}
+
+	pkgBaseURL := PackageBaseURL
+
+	// Check config override
+	if config != nil {
+		cPkgBaseURL := strings.Trim(config.PackageBaseURL, " ")
+		if len(cPkgBaseURL) > 0 {
+			pkgBaseURL = cPkgBaseURL
 		}
 	}
+
+	// Check environment variable override
+	ePkgBaseURL := os.Getenv("OPS_PACKAGE_BASE_URL")
+	if len(ePkgBaseURL) > 0 {
+		pkgBaseURL = ePkgBaseURL
+	}
+
+	isNetworkRepo := !strings.HasPrefix(pkgBaseURL, "file://")
+	if isNetworkRepo {
+		var fileURL string
+		if strings.HasSuffix(pkgBaseURL, "/") {
+			fileURL = pkgBaseURL + archivename
+		} else {
+			fileURL = fmt.Sprintf("%s/%s", pkgBaseURL, archivename)
+		}
+
+		if err = DownloadFileWithProgress(packagepath, fileURL, 600); err != nil {
+			return "", err
+		}
+
+		return packagepath, nil
+	}
+
+	pkgBaseURL = strings.TrimPrefix(pkgBaseURL, "file://")
+	srcPath := filepath.Join(pkgBaseURL, archivename)
+
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return "", err
+	}
+	defer srcFile.Close()
+
+	srcStat, err := srcFile.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	destFile, err := os.Create(packagepath)
+	if err != nil {
+		return "", err
+	}
+	defer destFile.Close()
+
+	progressCounter := NewWriteCounter(int(srcStat.Size()))
+	progressCounter.Start()
+	_, err = io.Copy(destFile, io.TeeReader(srcFile, progressCounter))
+	progressCounter.Finish()
+
 	return packagepath, nil
 }
 
