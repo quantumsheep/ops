@@ -35,7 +35,7 @@ func downloadAndExtractPackage(packagesDirPath, pkg string, config *types.Config
 		log.Fatal(err)
 	}
 
-	api.ExtractPackage(opsPackage, packagesDirPath)
+	api.ExtractPackage(opsPackage, packagesDirPath, config)
 
 	err = os.Remove(opsPackage)
 	if err != nil {

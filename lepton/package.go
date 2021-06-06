@@ -38,7 +38,7 @@ type Package struct {
 
 // DownloadPackage downloads package by name
 func DownloadPackage(name string, config *types.Config) (string, error) {
-	packages, err := GetPackageList()
+	packages, err := GetPackageList(config)
 	if err != nil {
 		return "", nil
 	}
@@ -119,14 +119,49 @@ func DownloadPackage(name string, config *types.Config) (string, error) {
 }
 
 // GetPackageList provides list of packages
-func GetPackageList() (*map[string]Package, error) {
+func GetPackageList(config *types.Config) (*map[string]Package, error) {
 	var err error
 
+	pkgManifestURL := PackageManifestURL
+
+	// Check config override
+	if config != nil {
+		cPkgManifestURL := strings.Trim(config.PackageManifestURL, " ")
+		if len(cPkgManifestURL) > 0 {
+			pkgManifestURL = cPkgManifestURL
+		}
+	}
+
+	// Check environment var override
+	ePkgManifestURL := os.Getenv("OPS_PACKAGE_MANIFEST_URL")
+	if len(ePkgManifestURL) > 0 {
+		pkgManifestURL = ePkgManifestURL
+	}
+
 	packageManifest := GetPackageManifestFile()
-	stat, err := os.Stat(packageManifest)
-	if os.IsNotExist(err) || PackageManifestChanged(stat, PackageManifestURL) {
-		if err = DownloadFile(packageManifest, PackageManifestURL, 10, false); err != nil {
+	if strings.HasPrefix(pkgManifestURL, "file://") {
+		destFile, err := os.OpenFile(packageManifest, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0666)
+		if err != nil {
 			return nil, err
+		}
+		defer destFile.Close()
+
+		pkgManifestURL = strings.TrimPrefix(pkgManifestURL, "file://")
+		srcFile, err := os.Open(pkgManifestURL)
+		if err != nil {
+			return nil, err
+		}
+		defer srcFile.Close()
+
+		if _, err := io.Copy(destFile, srcFile); err != nil {
+			return nil, err
+		}
+	} else {
+		stat, err := os.Stat(packageManifest)
+		if os.IsNotExist(err) || PackageManifestChanged(stat, pkgManifestURL) {
+			if err = DownloadFile(packageManifest, pkgManifestURL, 10, false); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -224,7 +259,7 @@ func sha256Of(filename string) string {
 
 // ExtractPackage extracts package in ops home.
 // This function is currently over-loaded.
-func ExtractPackage(archive string, dest string) {
+func ExtractPackage(archive, dest string, config *types.Config) {
 	sha := sha256Of(archive)
 
 	// hack
@@ -236,7 +271,7 @@ func ExtractPackage(archive string, dest string) {
 		fname := filepath.Base(archive)
 		fname = strings.ReplaceAll(fname, ".tar.gz", "")
 
-		list, err := GetPackageList()
+		list, err := GetPackageList(config)
 		if err != nil {
 			panic(err)
 		}

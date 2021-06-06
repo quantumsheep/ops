@@ -72,7 +72,7 @@ func cmdListPackages(cmd *cobra.Command, args []string) {
 	if local {
 		packages, err = api.GetLocalPackageList()
 	} else {
-		packages, err = api.GetPackageList()
+		packages, err = api.GetPackageList(lepton.NewConfig())
 	}
 	if err != nil {
 		log.Panicf("failed getting packages: %s", err)
